@@ -1,0 +1,10 @@
+!IFNDEF NAME
+!ERROR You must specify NAME=filename (w/o extension)
+!ENDIF
+
+$(NAME).exe: $(NAME).obj
+	link /co $(NAME).obj
+	
+$(NAME).obj: $(NAME).asm dosparse.inc
+	ml /c /Fl /Zi $(NAME).asm
+	
