@@ -31,30 +31,35 @@ populate_arr PROTO C sarr:PTR BYTE, darr:FPBYTE, arrsize:BYTE
 .STARTUP
 main proc
 	
+	; show prompt, ask for input, parse to array (in global near .DATA)
 	writestr prompt			
 	mov dx, offset input
 	mov ah, 0Ah
 	int 21h
 	
 	INVOKE input_to_arr, offset input, offset array
-	mov arrsize, al
+	mov arrsize, al			; prev proc returns arrsize in AX
 	dec al 					; 0-based index adjust
-	mov cl, 0
+	
+	; perform the mergesort algorithm
+	xor cl, cl
 	INVOKE mergesort, ADDR array, cl, al
+	
+	; print the sorted array
 	writestr crlf
 	INVOKE print_arr, arrsize, offset array
 	
 .EXIT
 main endp
 
-; example [3,1,7,5,2,6]
+; example [3,1,4,7,5,2,6]
 ; main merge sort procedure that splits array into subarrays recursively
 ; using merge subroutine for sorting the subarrays 
 mergesort proc C USES ax bx, A:PTR BYTE, p:BYTE, r:BYTE
 	
-	xor bh, bh		; for use in merge, since u only init bl in this proc
+	xor bh, bh		; for use in merge; u only init BL in this proc, but BH could be anything
 	mov al, p	    ; at least 1 operand req for cmp to be in reg
-	cmp al, r
+	cmp al, r		; if p < r
 	jl recurse
 	RET
 recurse:
@@ -64,14 +69,14 @@ recurse:
 	INVOKE mergesort, A, p, bl 
 	inc bl						; q+1
 	INVOKE mergesort, A, bl, r
-	dec bl						; return q to original val
+	dec bl						; return q to its val before +1
 	INVOKE merge, A, p, bl, r
 	RET
 	
 mergesort endp
 
-; This will merge two subarrays recursively. 
-; ds is preserved as its modded here.
+; This proc will merge two subarrays recursively. 
+; ds is preserved as its modded here to point to L_arr dyn alloc'd segment.
 merge proc C USES ax bx ds si di, A:PTR BYTE, p:BYTE, q:BYTE, r:BYTE
 	LOCAL      nl:BYTE 		; for left subarray limit (last index)
 	LOCAL      nr:BYTE 		; for right subarray limit (last index)
@@ -109,18 +114,19 @@ merge proc C USES ax bx ds si di, A:PTR BYTE, p:BYTE, q:BYTE, r:BYTE
 	inc bx 		; q+1
 	INVOKE populate_arr, A, R_arr, al
 	
-	; loop invariant that sorts merged subarrays
+	; loop invariant that sorts merged subarrays begins
 	mov cl, p   	    ; k=p
 	lds si, L_arr	 	; i=0  !!! DS no longer points to .DATA here
 	les di, R_arr  		; j=0
 	
 loop_invariant:
 	
-	cmp cl, r	
-	jg end_li		; end loop invariant
+	cmp cl, r					; for k=p to r
+	jg end_li					; end loop invariant
 	mov al, [si]
-	cmp al, es:[di]	
+	cmp al, es:[di]				; we use the explicit seg override rather than ASSUME
 	jle up_larr					; update left arr index L[i] <= R[j]
+	
 	; else, up_rarr L[i] > R[j]
 	mov bx, cx					; to index A
 	mov al, BYTE PTR es:[di]
@@ -135,11 +141,11 @@ loop_invariant:
 up_larr: 						; L[i] <= R[j]
 	mov bx, cx
 	mov al, BYTE PTR [si]
-	push si
-	mov si, A
-	mov ss:[si + bx], al		; SS = DS for .model small w/ NEARSTACK, see notes below
+	push si						; repurpose SI to hold A rather than L_arr temporarily
+	mov si, A					; load addr of A (recall no use of [] bc A is a stack param [bp-#])
+	mov ss:[si + bx], al		; SS = DS for .model small w/ NEARSTACK, as is in this prog
 	pop si						; restore the SI offset for the dyn alloc'd L_arr
-	inc si	; i+=1
+	inc si						; i+=1
 	inc cx
 	jmp loop_invariant
 
@@ -166,16 +172,14 @@ alloc_mem proc C arr:FPBYTE, alloc_size:BYTE
 	mov es, bx	; es now holds PSP 
 	
 	
-	; it is important to shrink mem given to prog by DOS,
-	; as DOS gives it all avail free mem on prog start.
+	; Shrink mem given to prog bc DOS gives all avail free mem on prog start.
 	; Get .LST file and calc total size from DATA, STACK, CODE 
 	; then +10h for PSP and div sum by 10h, dropping lower digit,
 	; rounding up if lowest digit is not 0. 
 	; Example:
 	;		542h -> 552h -> 55h paragraphs -> round up = 56h to shrink/expand
 	
-	; ES already = PSP segment at this point, no need to sav to data var
-	
+	; ES already = PSP segment at this point
 	mov ah, 4Ah							; mod memory blks (shrink avail prog mem)
 	mov bx, 13Ch						; program LST file shows 1308h prog size (+10h for PSP)
 	int 21h								; keep 131h paragraphs (1310h size)
@@ -240,7 +244,6 @@ populate_arr proc C USES si di, sarr:PTR BYTE, darr:FPBYTE, asize:BYTE
 	mov si, sarr    				; sarr contains ptr val
 	add si, bx						; addr must be loaded first from stack param before addressing contained elem
 	les di, darr				    ; load far pointer addr (ES:DI = dest addr)
-
 	xor cx, cx						; index for darr (=0)
 populate:
 	cmp cl, asize					; is cx smaller than expected size of subarray being populated?
@@ -260,13 +263,6 @@ populate_arr endp
 
 END
 
-
-
-; Main takeaways:
-; Review the Mergesort algorithm
-; Explore divide-and-conquer, recurrence, loop invariance, order of growth notations (O,theta,omega)
-; Introduce LOCAL, INVOKE, ASSUME (defining register types), TYPEDEF, ADDR, (::)
-; Introduce modules and importing modules (functions related to printing and parsing DOS data)
 
 
 
