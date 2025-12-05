@@ -2,6 +2,16 @@ PBYTE TYPEDEF PTR BYTE	; PTR to byte (arr of chars or integers)
 input_to_arr PROTO NEAR C pinput:PBYTE, parr:PBYTE
 print_arr PROTO NEAR C asize:BYTE, parr:PBYTE
 
+; Synopsis
+;	write a str to stdout via DOS
+writestr MACRO string:REQ
+	
+	;; this example does not push/pop ax,dx to preserve regs
+	mov ah, 9
+	mov dx, offset string
+	int 21h
+	
+ENDM
 
 ; Synopsis:
 ;	Parse DOS input buffer into byte array 

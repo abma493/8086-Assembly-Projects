@@ -1,14 +1,6 @@
 .8086
 ; you can also but "C" in .model to prevent typing "C" on each proc
-.model small
-writestr MACRO string:REQ
-	
-	; this example does not push/pop ax,dx to preserve regs
-	mov ah, 9
-	mov dx, offset string
-	int 21h
-	
-ENDM
+
 .stack 1000h
 .data
 	FPBYTE TYPEDEF FAR PTR BYTE 				; far ptr to bytes
@@ -47,7 +39,7 @@ main proc
 	
 	; print the sorted array
 	writestr crlf
-	INVOKE print_arr, arrsize, offset array
+	INVOKE print_arr, arrsize, offset array		; offset or ADDR works for INVOKE (ADDR doesn't for CALL)
 	
 .EXIT
 main endp
