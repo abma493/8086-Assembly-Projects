@@ -99,8 +99,10 @@ max_heapify proc USES si, p_heap: PHEAP, i: BYTE
 	mov dl, [si + bx]			; A[L]
 	mov bl, i
 	
-	; MASM distinguishes auto between instruction 
+	; MASM distinguishes automatically between instruction 
 	; and operator forms based on context
+	; NOTE: si casted to BYTE bc otherwise it grabs a WORD (heapsize and 1st elem)
+	;       This is undesirable so we cast as BYTE to get only heapsize
 	.IF (al <= BYTE PTR [si]) && (dl > [si + bx])
 		mov largest, al
 	.ELSE
