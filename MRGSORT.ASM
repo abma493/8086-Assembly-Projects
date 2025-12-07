@@ -1,6 +1,6 @@
 .8086
 ; you can also but "C" in .model to prevent typing "C" on each proc
-
+.model small
 .stack 1000h
 .data
 	FPBYTE TYPEDEF FAR PTR BYTE 				; far ptr to bytes

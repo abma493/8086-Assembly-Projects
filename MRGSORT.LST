@@ -1,0 +1,484 @@
+Microsoft (R) Macro Assembler Version 6.11		    12/07/25 10:27:42
+MRGSORT.asm						     Page 1 - 1
+
+
+				.8086
+				; you can also but "C" in .model to prevent typing "C" on each proc
+				.model small
+				.stack 1000h
+ 0000				.data
+					FPBYTE TYPEDEF FAR PTR BYTE 				; far ptr to bytes
+ 0000 45 6E 74 65 72 20			prompt  db "Enter array to sort:", "$"
+       61 72 72 61 79 20
+       74 6F 20 73 6F 72
+       74 3A 24
+ 0015 53 6F 72 74 65 64			result  db "Sorted array:", "$"
+       20 61 72 72 61 79
+       3A 24
+ 0023 0D 0A 0D 0A 24			crlf    db 0Dh, 0Ah, 0Dh, 0Ah, "$" 			; newline
+ 0028 13 00				input   db 19, 0, 19 DUP(?) 				; DOS input str
+       0013 [
+        00
+       ]
+ 003D  000A [				array   db 10 DUP(0)
+        00
+       ]
+ 0047 00				arrsize db 0
+ 0048 0000				psp_seg	dw ?								; store PSP segmennt (if u were to need it, here is an example)
+					
+ 0000				.code
+				INCLUDE DOSPARSE.INC
+			      C PBYTE TYPEDEF PTR BYTE	; PTR to byte (arr of chars or integers)
+			      C input_to_arr PROTO NEAR C pinput:PBYTE, parr:PBYTE
+			      C print_arr PROTO NEAR C asize:BYTE, parr:PBYTE
+			      C 
+			      C ; Synopsis
+			      C ;	write a str to stdout via DOS
+			      C writestr MACRO string:REQ
+			      C 	
+			      C 	; this example does not push/pop ax,dx to preserve regs
+			      C 	mov ah, 9
+			      C 	mov dx, offset string
+			      C 	int 21h
+			      C 	
+			      C ENDM
+			      C 
+			      C ; Synopsis:
+			      C ;	Parse DOS input buffer into byte array 
+			      C ; Parameters:
+			      C ;	pinput: pointer to DOS input buffer
+			      C ;	parr  : pointer to dest byte arr
+			      C ; Returns:
+			      C ;	arrsize >> ax
+			      C ; Learning:
+			      C ;	(1) MASM has implied dereferencing for all data labels, 
+			      C ;	    incl. LOCAL variables as shown in this proc
+			      C ;   (2) When using ptr args, MASM does not expl. retrive values.
+			      C ;		You must use two MOV instructions, one to retrieve the value
+			      C ;		and the other to dereference. For instance, not doing line 20
+			      C ;		but proceeding to do mov ax, [pinput+1] is double indirection, 
+			      C ;	    (which is illegal), since any stack param in the proc resolves to
+			      C ;		[bp-<offset>]. This is why something like mov myStackWord, 0 is OK,
+			      C ;		bc it resolves to mov [bp-2], 0
+ 0000			      C input_to_arr PROC C USES bx cx dx si di, pinput:PBYTE, parr:PBYTE
+			      C 
+			      C 	LOCAL asize:BYTE		; asize = arrsize to prevent symbol conflict
+ 000B  C6 46 FF 00	      C 	mov asize, 0			; initialize local var
+ 000F  8B 76 04		      C 	mov si, pinput          ; first load the address of input
+ 0012  8B 7E 06		      C 	mov di, parr			; first load the address of arr
+			      C 	
+ 0015  B9 0002		      C 	mov cx, 2				; prep index (cx = i = 2)
+ 0018  33 D2		      C 	xor dx, dx				; dx = j = 0 (prep index)
+ 001A  EB 00		      C 	jmp itr_loop
+ 001C			      C itr_loop:
+ 001C  8A 44 01		      C 	mov al, [si + 1]        ; al holds DOS chars read (incl. commas)
+ 001F  40		      C 	inc ax 					; +1 to account for input indexing
+ 0020  8A D8		      C 	mov bl, al				; save this index upper bound for now
+ 0022  D0 E8		      C 	shr al, 1				; divide by two (faster than using div)
+ 0024  88 46 FF		      C 	mov [asize], al		    ; arrsize now holds # of ints in arr
+ 0027  8A C3		      C 	mov al, bl				; restore al to DOS input indexing 
+			      C 	
+ 0029  38 C1		      C 	cmp cl, al 	
+ 002B  7E 0C		      C 	jle parse_value				 ; if i < len(input_arr), xchg value 
+ 002D  8A 46 FF		      C 	mov al, [asize]			 ; Load arrsize into AL for return
+			      C 	RET							 ; array parsed
+ 0039			      C parse_value:
+ 0039  8A D9		      C 	mov bl, cl					 ; load i for indexing
+ 003B  32 E4		      C 	xor ah, ah
+ 003D  8A 00		      C 	mov al, [si + bx]			 ; ax = input[i]
+ 003F  2C 30		      C 	sub al, '0'					 ; convert ASCII to number (0x35 -> 0x05)
+ 0041  8A DA		      C 	mov bl, dl					 ; load j for indexing
+ 0043  88 01		      C 	mov BYTE PTR [di + bx], al   ; arr[j] = arr[i]
+ 0045  83 C1 02		      C 	add cx, 2					 ; 2, 4, 6, 8, ...
+ 0048  42		      C 	inc dx						 ; 0, 1, 2, 3, ...
+ 0049  EB D1		      C 	jmp itr_loop
+			      C 
+ 004B			      C input_to_arr endp
+			      C 
+			      C ; Synopsis:
+			      C ; 	Print an integer array in the form <i>, <i+1>, ... <n>
+			      C ;	where i is an index and n is the last index of the array
+			      C ; Parameters:
+			      C ; 	asize: byte representing size of array (255 max)
+			      C ; 	parr : pointer to integer array to be printed  
+			      C ; Returns:
+			      C ; 	N/A
+ 004B			      C print_arr PROC C USES ax cx dx si, asize:BYTE, parr:PBYTE
+			      C 	LOCAL i:BYTE			; elem index
+ 0055  C6 46 FF 00	      C 	mov i, 0
+ 0059  8B 76 06		      C 	mov si, parr			; holds start of arr (address)
+ 005C  33 C9		      C 	xor cx, cx				; ensure its clear
+ 005E  8A 4E 04		      C 	mov cl, [asize]		    ; cx holds size of array
+ 0061			      C print_loop:
+ 0061  8A 14		      C 	mov dl, [si]
+ 0063  80 C2 30		      C 	add dl, '0'
+ 0066  B4 02		      C 	mov ah, 02h				; DOS print char
+ 0068  CD 21		      C 	int 21h
+			      C 
+ 006A  B2 20		      C 	mov dl, ' '				; print space
+ 006C  B4 02		      C 	mov ah, 02h
+ 006E  CD 21		      C 	int 21h
+			      C 
+ 0070  46		      C 	inc si					; next elem address 
+ 0071  FE 46 FF		      C 	inc i					; next elem index
+ 0074  38 4E FF		      C 	cmp [i], cl
+ 0077  7C E8		      C 	jl print_loop
+			      C 	RET
+			      C 
+ 0081			      C print_arr endp
+			      C 
+				; PROTOs required when using INVOKE and call
+				mergesort    PROTO C A:PTR BYTE, p:BYTE, r:BYTE
+				merge        PROTO C A:PTR BYTE, p:BYTE, q:BYTE, r:BYTE
+				alloc_mem    PROTO C arr:FPBYTE, alloc_size:BYTE
+				free_mem     PROTO C arr:FPBYTE
+				populate_arr PROTO C sarr:PTR BYTE, darr:FPBYTE, arrsize:BYTE
+				.STARTUP
+ 0098				main proc
+					
+					; show prompt, ask for input, parse to array (in global near .DATA)
+					writestr prompt			
+ 0098  B4 09		     1		mov ah, 9
+ 009A  BA 0000 R	     1		mov dx, offset prompt
+ 009D  CD 21		     1		int 21h
+ 009F  BA 0028 R			mov dx, offset input
+ 00A2  B4 0A				mov ah, 0Ah
+ 00A4  CD 21				int 21h
+					
+					INVOKE input_to_arr, offset input, offset array
+ 00B4  A2 0047 R			mov arrsize, al			; prev proc returns arrsize in AX
+ 00B7  FE C8				dec al 					; 0-based index adjust
+					
+					; perform the mergesort algorithm
+ 00B9  32 C9				xor cl, cl
+					INVOKE mergesort, ADDR array, cl, al
+					
+					; print the sorted array
+					writestr crlf
+ 00CA  B4 09		     1		mov ah, 9
+ 00CC  BA 0023 R	     1		mov dx, offset crlf
+ 00CF  CD 21		     1		int 21h
+					INVOKE print_arr, arrsize, offset array		; offset or ADDR works for INVOKE (ADDR doesn't for CALL)
+					
+				.EXIT
+ 00E3				main endp
+
+				; example [3,1,4,7,5,2,6]
+				; main merge sort procedure that splits array into subarrays recursively
+				; using merge subroutine for sorting the subarrays 
+ 00E3				mergesort proc C USES ax bx, A:PTR BYTE, p:BYTE, r:BYTE
+					
+ 00E8  32 FF				xor bh, bh		; for use in merge; u only init BL in this proc, but BH could be anything
+ 00EA  8A 46 06				mov al, p	    ; at least 1 operand req for cmp to be in reg
+ 00ED  3A 46 08				cmp al, r		; if p < r
+ 00F0  7C 04				jl recurse
+					RET
+ 00F6				recurse:
+ 00F6  8A D8				mov bl, al					; bl = q = p
+ 00F8  02 5E 08				add bl, r					; q+=r
+ 00FB  D0 EB				shr bl, 1					; q/2
+					INVOKE mergesort, A, p, bl 
+ 010D  FE C3				inc bl						; q+1
+					INVOKE mergesort, A, bl, r
+ 011F  FE CB				dec bl						; return q to its val before +1
+					INVOKE merge, A, p, bl, r
+					RET
+					
+ 0139				mergesort endp
+
+				; This proc will merge two subarrays recursively. 
+				; ds is preserved as its modded here to point to L_arr dyn alloc'd segment.
+ 0139				merge proc C USES ax bx ds si di, A:PTR BYTE, p:BYTE, q:BYTE, r:BYTE
+					LOCAL      nl:BYTE 		; for left subarray limit (last index)
+					LOCAL      nr:BYTE 		; for right subarray limit (last index)
+					LOCAL     L_arr:FPBYTE  ; contents of L and R are garbo 
+					LOCAL     R_arr:FPBYTE  ; (stack space is reserved but locals can't be init)
+					
+ 0144  C7 46 FA 0000			mov WORD PTR L_arr, 0  ; init arrays to save a mov to set arr[0] (offset) in alloc_mem
+ 0149  C7 46 F6 0000			mov WORD PTR R_arr, 0  ; LOCALs must be declared before the first instruction in proc
+					
+ 014E  8A 46 08				mov al, q	  
+ 0151  2A 46 06				sub al, p    
+ 0154  FE C0				inc al        
+ 0156  88 46 FF				mov nl, al  						; nl = q - p + 1
+					
+ 0159  8A 46 0A				mov al, r
+ 015C  2A 46 08				sub al, q
+ 015F  88 46 FE				mov nr, al  						; nr = r - q  
+					
+					; create L[1..nl+1] and populate it
+ 0162  8A 46 FF				mov al, nl
+ 0165  40				inc ax								; account for +1 for terminal sym
+					INVOKE alloc_mem, ADDR L_arr, al
+ 0172  48				dec ax								; return back to original value
+					
+ 0173  8A 5E 06				mov bl, p
+					INVOKE populate_arr, A, L_arr, al
+					
+					; create R[1..n2+1]	and populate it
+ 0186  8A 46 FE				mov al, nr
+ 0189  40				inc ax
+					INVOKE alloc_mem, ADDR R_arr, al
+ 0196  48				dec ax
+					
+ 0197  8A 5E 08				mov bl, q
+ 019A  43				inc bx 		; q+1
+					INVOKE populate_arr, A, R_arr, al
+					
+					; loop invariant that sorts merged subarrays begins
+ 01AB  8A 4E 06				mov cl, p   	    ; k=p
+ 01AE  C5 76 FA				lds si, L_arr	 	; i=0  !!! DS no longer points to .DATA here
+ 01B1  C4 7E F6				les di, R_arr  		; j=0
+					
+ 01B4				loop_invariant:
+					
+ 01B4  3A 4E 0A				cmp cl, r					; for k=p to r
+ 01B7  7F 28				jg end_li					; end loop invariant
+ 01B9  8A 04				mov al, [si]
+ 01BB  26: 3A 05			cmp al, es:[di]				; we use the explicit seg override rather than ASSUME
+ 01BE  7E 11				jle up_larr					; update left arr index L[i] <= R[j]
+					
+					; else, up_rarr L[i] > R[j]
+ 01C0  8B D9				mov bx, cx					; to index A
+ 01C2  26: 8A 05			mov al, BYTE PTR es:[di]
+ 01C5  56				push si						; save L index tmprly
+ 01C6  8B 76 04				mov si, A 					; si now holds index of A array
+ 01C9  36: 88 00			mov ss:[si + bx], al		; A[k] = R[j]
+ 01CC  5E				pop si						; restore si to hold L index for next itr
+ 01CD  47				inc di						; j+=1
+ 01CE  41				inc cx						; k+=1 of enclosing loop
+ 01CF  EB E3				jmp loop_invariant
+					
+ 01D1				up_larr: 						; L[i] <= R[j]
+ 01D1  8B D9				mov bx, cx
+ 01D3  8A 04				mov al, BYTE PTR [si]
+ 01D5  56				push si						; repurpose SI to hold A rather than L_arr temporarily
+ 01D6  8B 76 04				mov si, A					; load addr of A (recall no use of [] bc A is a stack param [bp-#])
+ 01D9  36: 88 00			mov ss:[si + bx], al		; SS = DS for .model small w/ NEARSTACK, as is in this prog
+ 01DC  5E				pop si						; restore the SI offset for the dyn alloc'd L_arr
+ 01DD  46				inc si						; i+=1
+ 01DE  41				inc cx
+ 01DF  EB D3				jmp loop_invariant
+
+ 01E1				end_li:
+					INVOKE free_mem, L_arr
+					INVOKE free_mem, R_arr
+					RET
+					
+ 0202				merge endp
+
+				; Synopsis:
+				;	Load the appropriate address of alloc'd mem by DOS into the FPBYTE 
+				;   array pointer. Recall a pointer in MASM is always a WORD (2B for seg,
+				;	2B for offset). Due to the nature of this proc, ADDR operator used in 
+				;   proc invocation (INVOKE).
+				; param(s):
+				;	LOAD ax for size of array
+				; Returns:
+				;	N/A	
+ 0202				alloc_mem proc C arr:FPBYTE, alloc_size:BYTE
+					
+ 0205  B4 62				mov ah, 62h ; get PSP addr
+ 0207  CD 21				int 21h		; stores seg in bx
+ 0209  8E C3				mov es, bx	; es now holds PSP 
+					
+					
+					; Shrink mem given to prog bc DOS gives all avail free mem on prog start.
+					; Get .LST file and calc total size from DATA, STACK, CODE 
+					; then +10h for PSP and div sum by 10h, dropping lower digit,
+					; rounding up if lowest digit is not 0. 
+					; Example:
+					;		542h -> 552h -> 55h paragraphs -> round up = 56h to shrink/expand
+					
+					; ES already = PSP segment at this point
+ 020B  B4 4A				mov ah, 4Ah							; mod memory blks (shrink avail prog mem)
+ 020D  BB 013C				mov bx, 13Ch						; program LST file shows 1308h prog size (+10h for PSP)
+ 0210  CD 21				int 21h								; keep 131h paragraphs (1310h size)
+					; now there is free mem to be dyn. alloc'd 
+					; TODO check if error !!!
+					
+ 0212  C4 7E 04				les di, arr							; load far pointer ES:DI
+					
+ 0215				prep_alloc:
+
+ 0215  32 E4				xor ah, ah							; ax used by INVOKE to set up params, so clear it
+ 0217  8A 46 08				mov al, alloc_size
+ 021A  50				push ax
+ 021B  83 C0 0F				add ax, 15							; 15 to ensure any partial paragraph rounds up
+ 021E  B1 04				mov cl, 4
+ 0220  D3 E8				shr ax, cl							; div by 16 (2^4)
+					
+ 0222  0B C0				or ax, ax							; if ZF=1, AX is 0
+ 0224  75 01				jnz alloc
+ 0226  40				inc ax								; ensure min 1 paragraph
+ 0227				alloc:
+ 0227  8B D8				mov bx, ax							; # of paragraphs requested
+ 0229  B4 48				mov ah, 48h 						; alloc mem
+ 022B  CD 21				int 21h
+ 022D  72 07				jc error
+					; ax will contain seg addr of alloc'd mem (MCB + 1 par)
+					; offset (arr[0]) is already 0
+ 022F  26: 89 45 02			mov WORD PTR es:[di+2], ax 			; Load segment (recall x86 is little-endian)
+ 0233  58				pop ax						
+					RET
+ 0236				error:
+					; TODO handle error, if no handler then ret 
+					RET
+ 0238				alloc_mem endp
+
+				; Synopsis:
+				;	Free alloc'd memory via DOS
+ 0238				free_mem proc C arr:FPBYTE
+
+ 023B  8E 46 06				mov es, WORD PTR arr[2]				; ES holds seg of blk to be returned
+ 023E  B4 49				mov ah, 49h							; DOS func to free mem
+ 0240  CD 21				int 21h
+					
+					RET
+
+ 0244				free_mem endp
+
+
+				; Synopsis:
+				;	Given a main array (sarr), populate 0..arrsize elements,
+				;	where arrsize = n - 1, and n will be the last valid index
+				;   to hold a terminator symbol ($). Given that the actual value
+				;   of FPBYTE params required, we simply pass the pointers and 
+				;   dereference them here (lines 139-140)
+				; Params:
+				; 	Let sarr    = source array (A)
+				; 	Let darr    = dest array  (the dyn. alloc'd array, the subarray)
+				;   Let arrsize = size of darr elements to be populated
+				;   Let bx      = starting index of sarr	
+ 0244				populate_arr proc C USES si di, sarr:PTR BYTE, darr:FPBYTE, asize:BYTE
+					
+ 0249  8B 76 04				mov si, sarr    				; sarr contains ptr val
+ 024C  03 F3				add si, bx						; addr must be loaded first from stack param before addressing contained elem
+ 024E  C4 7E 06				les di, darr				    ; load far pointer addr (ES:DI = dest addr)
+ 0251  33 C9				xor cx, cx						; index for darr (=0)
+ 0253				populate:
+ 0253  3A 4E 0A				cmp cl, asize					; is cx smaller than expected size of subarray being populated?
+ 0256  7D 0A				jge done
+					
+ 0258  8A 14				mov dl, [si]					; hold value of sarr elem 
+ 025A  26: 88 15			mov es:[di], dl					; retrieve val of first elem of darr
+ 025D  46				inc si							; sarr[i+1]
+ 025E  47				inc di          				; darr[j+1]
+ 025F  41				inc cx							; inc loop counter counter
+ 0260  EB F1				jmp populate
+ 0262				done:
+ 0262  26: C6 05 24			mov BYTE PTR es:[di], '$'		; terminal symbol (ASCII 24h) 
+					; TODO what if elem cmp to '$' is greater than '$' (36) value? We need to account for this.
+					RET
+ 026A				populate_arr endp
+
+				END
+
+
+
+
+
+Microsoft (R) Macro Assembler Version 6.11		    12/07/25 10:27:42
+MRGSORT.asm						     Symbols 2 - 1
+
+
+
+
+Macros:
+
+                N a m e                 Type
+
+writestr . . . . . . . . . . . .	Proc
+
+
+Types:
+
+                N a m e                  Size     Attr
+
+FPBYTE . . . . . . . . . . . . .	 0004	  FarPTR Byte 
+PBYTE  . . . . . . . . . . . . .	 0002	  PTR Byte 
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+DGROUP . . . . . . . . . . . . .	GROUP
+_DATA  . . . . . . . . . . . . .	16 Bit	 004A	  Word	  Public  'DATA'	
+STACK  . . . . . . . . . . . . .	16 Bit	 1000	  Para	  Stack	  'STACK'	 
+_TEXT  . . . . . . . . . . . . .	16 Bit	 026A	  Word	  Public  'CODE'	
+
+
+Procedures,  parameters and locals:
+
+                N a m e                 Type     Value    Attr
+
+alloc_mem  . . . . . . . . . . .	P Near	 0202	  _TEXT	Length= 0036 Public C
+  arr  . . . . . . . . . . . . .	DWord	 bp + 0004
+  alloc_size . . . . . . . . . .	Byte	 bp + 0008
+  prep_alloc . . . . . . . . . .	L Near	 0215	  _TEXT	
+  alloc  . . . . . . . . . . . .	L Near	 0227	  _TEXT	
+  error  . . . . . . . . . . . .	L Near	 0236	  _TEXT	
+free_mem . . . . . . . . . . . .	P Near	 0238	  _TEXT	Length= 000C Public C
+  arr  . . . . . . . . . . . . .	DWord	 bp + 0004
+input_to_arr . . . . . . . . . .	P Near	 0000	  _TEXT	Length= 004B Public C
+  pinput . . . . . . . . . . . .	Word	 bp + 0004
+  parr . . . . . . . . . . . . .	Word	 bp + 0006
+  asize  . . . . . . . . . . . .	Byte	 bp - 0001
+  itr_loop . . . . . . . . . . .	L Near	 001C	  _TEXT	
+  parse_value  . . . . . . . . .	L Near	 0039	  _TEXT	
+main . . . . . . . . . . . . . .	P Near	 0098	  _TEXT	Length= 004B Public
+mergesort  . . . . . . . . . . .	P Near	 00E3	  _TEXT	Length= 0056 Public C
+  A  . . . . . . . . . . . . . .	Word	 bp + 0004
+  p  . . . . . . . . . . . . . .	Byte	 bp + 0006
+  r  . . . . . . . . . . . . . .	Byte	 bp + 0008
+  recurse  . . . . . . . . . . .	L Near	 00F6	  _TEXT	
+merge  . . . . . . . . . . . . .	P Near	 0139	  _TEXT	Length= 00C9 Public C
+  A  . . . . . . . . . . . . . .	Word	 bp + 0004
+  p  . . . . . . . . . . . . . .	Byte	 bp + 0006
+  q  . . . . . . . . . . . . . .	Byte	 bp + 0008
+  r  . . . . . . . . . . . . . .	Byte	 bp + 000A
+  nl . . . . . . . . . . . . . .	Byte	 bp - 0001
+  nr . . . . . . . . . . . . . .	Byte	 bp - 0002
+  L_arr  . . . . . . . . . . . .	DWord	 bp - 0006
+  R_arr  . . . . . . . . . . . .	DWord	 bp - 000A
+  loop_invariant . . . . . . . .	L Near	 01B4	  _TEXT	
+  up_larr  . . . . . . . . . . .	L Near	 01D1	  _TEXT	
+  end_li . . . . . . . . . . . .	L Near	 01E1	  _TEXT	
+populate_arr . . . . . . . . . .	P Near	 0244	  _TEXT	Length= 0026 Public C
+  sarr . . . . . . . . . . . . .	Word	 bp + 0004
+  darr . . . . . . . . . . . . .	DWord	 bp + 0006
+  asize  . . . . . . . . . . . .	Byte	 bp + 000A
+  populate . . . . . . . . . . .	L Near	 0253	  _TEXT	
+  done . . . . . . . . . . . . .	L Near	 0262	  _TEXT	
+print_arr  . . . . . . . . . . .	P Near	 004B	  _TEXT	Length= 0036 Public C
+  asize  . . . . . . . . . . . .	Byte	 bp + 0004
+  parr . . . . . . . . . . . . .	Word	 bp + 0006
+  i  . . . . . . . . . . . . . .	Byte	 bp - 0001
+  print_loop . . . . . . . . . .	L Near	 0061	  _TEXT	
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 0000h	 
+@DataSize  . . . . . . . . . . .	Number	 0000h	 
+@Interface . . . . . . . . . . .	Number	 0000h	 
+@Model . . . . . . . . . . . . .	Number	 0002h	 
+@Startup . . . . . . . . . . . .	L Near	 0081	  _TEXT	
+@code  . . . . . . . . . . . . .	Text   	 _TEXT
+@data  . . . . . . . . . . . . .	Text   	 DGROUP
+@fardata?  . . . . . . . . . . .	Text   	 FAR_BSS
+@fardata . . . . . . . . . . . .	Text   	 FAR_DATA
+@stack . . . . . . . . . . . . .	Text   	 DGROUP
+array  . . . . . . . . . . . . .	Byte	 003D	  _DATA	
+arrsize  . . . . . . . . . . . .	Byte	 0047	  _DATA	
+crlf . . . . . . . . . . . . . .	Byte	 0023	  _DATA	
+input  . . . . . . . . . . . . .	Byte	 0028	  _DATA	
+prompt . . . . . . . . . . . . .	Byte	 0000	  _DATA	
+psp_seg  . . . . . . . . . . . .	Word	 0048	  _DATA	
+result . . . . . . . . . . . . .	Byte	 0015	  _DATA	
+
+	   0 Warnings
+	   0 Errors
