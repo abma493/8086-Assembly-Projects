@@ -15,22 +15,30 @@ get_right MACRO dest:REQ, i:REQ
 	mov dest, al
 ENDM
 
+HEAP STRUCT 
+
+	heapsize  BYTE ?
+	A         BYTE 10 DUP(?)
+
+HEAP ENDS
+
+
 .stack 100h
 .data
 	
-	; define data here
+	PHEAP   TYPEDEF PTR HEAP
 	prompt  db "Enter array to sort:", "$"
 	result  db "Sorted array:", "$"
 	crlf    db 0Dh, 0Ah, 0Dh, 0Ah, "$" 			; newline
 	input   db 19, 0, 19 DUP(?) 				; DOS input str
 	arrsize db ?
-	array   db 10 DUP(0)
+	array   HEAP <>
 	
 .code
 INCLUDE DOSPARSE.INC
-heapsort       PROTO C A: PTR BYTE
+heapsort       PROTO C heap: PHEAP
 max_heapify    PROTO C A: PTR BYTE, i: BYTE
-build_max_heap PROTO C A: PTR BYTE
+build_max_heap PROTO C heap: PHEAP
 .STARTUP
 main proc
 
@@ -39,32 +47,34 @@ main proc
 	mov ah, 0Ah
 	int 21h
 	
-	INVOKE input_to_arr, offset input, offset array
+	lea bx, array.A 			; get addr of elements field
+	INVOKE input_to_arr, offset input, bx
 	mov arrsize, al
-	dec al						; 0-based adjust
 	INVOKE heapsort, ADDR array
 	
 	
 .EXIT
 main endp
 
-heapsort proc USES ax bx cx, A: PTR BYTE 
+heapsort proc USES ax bx cx, p_heap: PHEAP 
 	
-	mov si, A					; load base addr of A array
+	mov si, p_heap					; load base addr of HEAP_STRUCT
 	
-	INVOKE build_max_heap, A
+	INVOKE build_max_heap, p_heap
 	mov cl, arrsize
 	
 sort_array:
 	
 	mov bx, cx
-	mov al, [si + 1] 			; A[1]
-	xchg [si + bx], al			; exchange A[1] with A[i]
-	mov al, [si] 				; A[0] A.heapsize
-	dec al						; A.heapsize -= 1
-	INVOKE max_heapify, A, 1	; CAN YOU PASS AN IMM ???
+	mov al, (HEAP PTR [si]).A[1] 		; A[1]
+	xchg [si + bx], al					; exchange A[1] with A[i]
+	mov al, (HEAP PTR [si]).heapsize	; A[0] A.heapsize
+	dec al								; A.heapsize -= 1
+	mov (HEAP PTR [si]).heapsize, al
+	lea bx, (HEAP PTR [si]).A				; you can also just repl. this line w/ INC bx (point to A[0])
+	INVOKE max_heapify, bx, 1			
 	
-	LOOP sort_array				; impl. dec cx, loop til CX=0
+	LOOP sort_array						; impl. dec cx, loop til CX=0
 	
 	RET
 	
@@ -112,17 +122,18 @@ max_heapify proc USES si, A: PTR BYTE, i: BYTE
 
 max_heapify endp
 
-build_max_heap proc USES cx, A: PTR BYTE
+build_max_heap proc USES cx, p_heap: PHEAP
 
-	mov si, A
-	mov al, arrsize 	; do I really gotta do this?
-	mov [si], ax		; A.heapsize = n
+	mov si, p_heap
+	mov al, arrsize 	    			; do I really gotta do this?
+	mov (HEAP PTR [si]).heapsize, al	; A.heapsize = n
 	
 	shr ax, 1			; div by 2
 	mov cx, ax			; i = n/2
 	
 build:
-	INVOKE max_heapify, A, cl
+	lea bx, (HEAP PTR [si]).A
+	INVOKE max_heapify, bx, cl
 	LOOP build
 	
 	RET
