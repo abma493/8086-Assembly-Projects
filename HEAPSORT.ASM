@@ -17,9 +17,9 @@ ENDM
 
 HEAP STRUCT 
 
-	heapsize  BYTE ?
-	A         BYTE 10 DUP(?)
-
+	heapsize  BYTE ?			; hold size of heap
+	A         BYTE 10 DUP(?)	; array of elems to be sorted
+	
 HEAP ENDS
 
 
@@ -33,7 +33,6 @@ HEAP ENDS
 	input   db 19, 0, 19 DUP(?) 				; DOS input str
 	arrsize db ?
 	array   HEAP <>
-	testme db 10 DUP(0)
 	
 .code
 INCLUDE DOSPARSE.INC
